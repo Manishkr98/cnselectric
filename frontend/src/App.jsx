@@ -1,0 +1,1089 @@
+import React, { useState, useRef, useEffect } from 'react';
+import * as htmlToImage from 'html-to-image';
+import { 
+  Download, Plus, Trash2, Image as ImageIcon, Square, Palette, Move, 
+  Type, AlignLeft, AlignCenter, AlignRight, Bold, Italic, Save, FolderOpen,
+  Group, Ungroup, Cpu, Activity, Maximize2, Sliders, X, FilePlus, Layers,
+  Box, Cpu as ComponentIcon, Upload, Grid, Sun, Sparkles, RefreshCw
+} from 'lucide-react';
+
+const BUTTON_STYLES = {
+  primary: { name: 'Primary Cyan', bg: '#0891b2', text: '#ffffff', border: 'none', shadow: '0 4px 14px rgba(8, 145, 178, 0.4)' },
+  secondary: { name: 'Secondary Dark', bg: '#334155', text: '#f8fafc', border: '1px solid #475569', shadow: 'none' },
+  danger: { name: 'Danger Red', bg: '#dc2626', text: '#ffffff', border: 'none', shadow: '0 4px 14px rgba(220, 38, 38, 0.4)' },
+  outline: { name: 'Outline Cyan', bg: 'transparent', text: '#38bdf8', border: '2px solid #0284c7', shadow: 'none' },
+  neon: { name: 'Neon Cyber', bg: '#0f172a', text: '#22d3ee', border: '1px solid #22d3ee', shadow: '0 0 15px rgba(34, 211, 238, 0.6)' },
+  glass: { name: 'Glassmorphism', bg: 'rgba(255, 255, 255, 0.1)', text: '#ffffff', border: '1px solid rgba(255, 255, 255, 0.2)', shadow: '0 8px 32px 0 rgba(0, 0, 0, 0.37)' }
+};
+
+const SHADOW_PRESETS = [
+  { id: 'none', label: 'None', val: 'none' },
+  { id: 'soft', label: 'Soft Drop', val: '0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.06)' },
+  { id: 'medium', label: 'Subtle Depth', val: '0 10px 15px -3px rgba(0, 0, 0, 0.5)' },
+  { id: 'heavy', label: 'Heavy Ambient', val: '0 20px 25px -5px rgba(0, 0, 0, 0.7)' },
+  { id: 'cyanGlow', label: 'Neon Cyan Glow', val: '0 0 20px rgba(6, 182, 212, 0.6)' },
+  { id: 'amberGlow', label: 'Amber Alert Glow', val: '0 0 20px rgba(245, 158, 11, 0.6)' }
+];
+
+const STORAGE_KEY_PAGES = 'auto_saved_dashboard_pages_v1';
+const STORAGE_KEY_CANVAS = 'auto_saved_dashboard_canvas_v1';
+
+function App() {
+  // Initialize state directly from LocalStorage so data persists across browser/windows restarts
+  const [pages, setPages] = useState(() => {
+    const savedPages = localStorage.getItem(STORAGE_KEY_PAGES);
+    if (savedPages) {
+      try { return JSON.parse(savedPages); } catch (e) { console.error(e); }
+    }
+    return {
+      'page-1': { id: 'page-1', name: 'Page 1', elements: [], canvasBg: '#0d1117' }
+    };
+  });
+
+  const [activePageId, setActivePageId] = useState(() => {
+    const savedPages = localStorage.getItem(STORAGE_KEY_PAGES);
+    if (savedPages) {
+      try {
+        const parsed = JSON.parse(savedPages);
+        return Object.keys(parsed)[0] || 'page-1';
+      } catch (e) {}
+    }
+    return 'page-1';
+  });
+
+  const [selectedIds, setSelectedIds] = useState([]);
+  
+  const [canvasSize, setCanvasSize] = useState(() => {
+    const savedCanvas = localStorage.getItem(STORAGE_KEY_CANVAS);
+    if (savedCanvas) {
+      try { return JSON.parse(savedCanvas); } catch (e) {}
+    }
+    return { width: 950, height: 600 };
+  });
+  
+  const [templates, setTemplates] = useState({});
+  const [templateName, setTemplateName] = useState('');
+  
+  const canvasRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const [actionState, setActionState] = useState(null); 
+  const [interactionStart, setInteractionStart] = useState({ x: 0, y: 0, initialElems: [], initialCanvas: null });
+
+  // Auto-Save Pages and Canvas Size to LocalStorage whenever state changes
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_PAGES, JSON.stringify(pages));
+  }, [pages]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_CANVAS, JSON.stringify(canvasSize));
+  }, [canvasSize]);
+
+  // Safely get active page data
+  const currentPage = pages[activePageId] || { elements: [], canvasBg: '#0d1117' };
+  const elements = currentPage.elements || [];
+  const canvasBg = currentPage.canvasBg;
+
+  // Add a new project page
+  const addPage = () => {
+    const newPageId = `page-${Date.now()}`;
+    const newPageNum = Object.keys(pages).length + 1;
+    setPages((prevPages) => ({
+      ...prevPages,
+      [newPageId]: { 
+        id: newPageId, 
+        name: `Page ${newPageNum}`, 
+        elements: [], 
+        canvasBg: '#0d1117' 
+      }
+    }));
+    setActivePageId(newPageId);
+    setSelectedIds([]);
+  };
+
+  // Only delete a page with explicit user confirmation
+  const deletePage = (pageId, e) => {
+    e.stopPropagation();
+    if (Object.keys(pages).length <= 1) {
+      alert("At least one page project must remain.");
+      return;
+    }
+    
+    const confirmDelete = window.confirm("Are you sure you want to delete this page project? This action cannot be undone.");
+    if (!confirmDelete) return;
+
+    setPages((prevPages) => {
+      const updated = { ...prevPages };
+      delete updated[pageId];
+      if (activePageId === pageId) {
+        setActivePageId(Object.keys(updated)[0]);
+      }
+      return updated;
+    });
+    setSelectedIds([]);
+  };
+
+  const updatePageBg = (color) => {
+    setPages((prev) => ({
+      ...prev,
+      [activePageId]: { 
+        ...prev[activePageId], 
+        canvasBg: color 
+      }
+    }));
+  };
+
+  const setElements = (updater) => {
+    setPages((prevPages) => {
+      const currentActive = prevPages[activePageId];
+      if (!currentActive) return prevPages;
+
+      const currentElems = currentActive.elements || [];
+      const newElems = typeof updater === 'function' ? updater(currentElems) : updater;
+
+      return {
+        ...prevPages,
+        [activePageId]: {
+          ...currentActive,
+          elements: newElems
+        }
+      };
+    });
+  };
+
+  const addElement = (type, btnVariant = 'primary') => {
+    const newId = Date.now();
+    const maxZ = elements.length > 0 ? Math.max(...elements.map(e => e.zIndex || 1)) + 1 : 1;
+
+    let newElement = {
+      id: newId,
+      type,
+      x: 80,
+      y: 80,
+      width: 200,
+      height: 50,
+      bgColor: '#1f2937',
+      textColor: '#38bdf8',
+      fontSize: 14,
+      fontWeight: 'normal',
+      fontStyle: 'normal',
+      textAlign: 'center',
+      text: type.toUpperCase(),
+      borderRadius: '6px',
+      showGridPattern: false,
+      imageUrl: '',
+      opacity: 1,
+      boxShadow: 'none',
+      borderStyle: 'none',
+      buttonStyle: 'primary',
+      groupId: null,
+      zIndex: maxZ
+    };
+
+    if (type === 'textbox') {
+      newElement.width = 240;
+      newElement.height = 40;
+      newElement.bgColor = 'transparent';
+      newElement.textColor = '#38bdf8';
+      newElement.fontSize = 22;
+      newElement.fontWeight = 'bold';
+      newElement.textAlign = 'left';
+      newElement.text = 'Control Panel Title';
+      newElement.zIndex = maxZ + 10;
+    } else if (type === 'container') {
+      newElement.width = 320;
+      newElement.height = 350;
+      newElement.bgColor = '#1e293b';
+      newElement.textColor = '#64748b';
+      newElement.borderRadius = '16px';
+      newElement.showGridPattern = true;
+      newElement.text = '';
+      newElement.zIndex = 1; 
+    } else if (type === 'product') {
+      newElement.width = 180;
+      newElement.height = 180;
+      newElement.bgColor = 'transparent';
+      newElement.textColor = '#0284c7';
+      newElement.text = 'Product Image';
+      newElement.zIndex = maxZ + 5;
+    } else if (type === 'logo') {
+      newElement.width = 120;
+      newElement.height = 60;
+      newElement.bgColor = 'transparent';
+      newElement.textColor = '#38bdf8';
+      newElement.text = 'Company Logo';
+      newElement.zIndex = maxZ + 5;
+    } else if (type === 'button') {
+      const preset = BUTTON_STYLES[btnVariant] || BUTTON_STYLES.primary;
+      newElement.width = 160;
+      newElement.height = 45;
+      newElement.bgColor = preset.bg;
+      newElement.textColor = preset.text;
+      newElement.borderStyle = preset.border;
+      newElement.boxShadow = preset.shadow;
+      newElement.borderRadius = '8px';
+      newElement.text = `${btnVariant.toUpperCase()} BTN`;
+      newElement.buttonStyle = btnVariant;
+      newElement.zIndex = maxZ + 5;
+    } else if (type === 'header') {
+      newElement.x = 0;
+      newElement.y = 0;
+      newElement.width = canvasSize.width;
+      newElement.height = 65;
+      newElement.bgColor = '#0f172a';
+      newElement.textColor = '#38bdf8';
+      newElement.borderRadius = '0px';
+      newElement.text = 'SYSTEM DASHBOARD HEADER';
+      newElement.zIndex = 2;
+    } else if (type === 'sidebar') {
+      newElement.x = 0;
+      newElement.y = 65;
+      newElement.width = 200;
+      newElement.height = canvasSize.height - 115;
+      newElement.bgColor = '#020617';
+      newElement.textColor = '#94a3b8';
+      newElement.borderRadius = '0px';
+      newElement.text = 'Navigation Sidebar';
+      newElement.zIndex = 2;
+    }
+
+    setElements((prev) => [...prev, newElement]);
+    setSelectedIds([newId]);
+  };
+
+  const handleSelect = (e, id) => {
+    e.stopPropagation();
+    const elem = elements.find(el => el.id === id);
+    let targetIds = [id];
+    if (elem?.groupId) {
+      targetIds = elements.filter(el => el.groupId === elem.groupId).map(el => el.id);
+    }
+
+    if (e.shiftKey) {
+      setSelectedIds((prev) => 
+        prev.includes(id) ? prev.filter(i => !targetIds.includes(i)) : Array.from(new Set([...prev, ...targetIds]))
+      );
+    } else {
+      setSelectedIds(targetIds);
+    }
+  };
+
+  const handleDragStart = (e, id) => {
+    if (!selectedIds.includes(id)) handleSelect(e, id);
+    setActionState('drag');
+    const activeElements = elements.filter(el => selectedIds.includes(el.id) || el.id === id);
+    setInteractionStart({
+      x: e.clientX,
+      y: e.clientY,
+      initialElems: activeElements.map(el => ({ ...el }))
+    });
+  };
+
+  const handleElemResizeStart = (e, id) => {
+    e.stopPropagation();
+    setActionState('resize-elem');
+    const elem = elements.find((el) => el.id === id);
+    setInteractionStart({
+      x: e.clientX,
+      y: e.clientY,
+      initialElems: [{ ...elem }]
+    });
+  };
+
+  const handleCanvasResizeStart = (e) => {
+    e.stopPropagation();
+    setSelectedIds([]);
+    setActionState('resize-canvas');
+    setInteractionStart({
+      x: e.clientX,
+      y: e.clientY,
+      initialCanvas: { ...canvasSize }
+    });
+  };
+
+  const handleMouseMove = (e) => {
+    if (!actionState) return;
+    const deltaX = e.clientX - interactionStart.x;
+    const deltaY = e.clientY - interactionStart.y;
+
+    if (actionState === 'resize-canvas') {
+      setCanvasSize({
+        width: Math.max(400, interactionStart.initialCanvas.width + deltaX),
+        height: Math.max(300, interactionStart.initialCanvas.height + deltaY),
+      });
+      return;
+    }
+
+    setElements((prev) =>
+      prev.map((el) => {
+        const initial = interactionStart.initialElems.find(item => item.id === el.id);
+        if (!initial) return el;
+
+        if (actionState === 'drag') {
+          return {
+            ...el,
+            x: Math.max(0, initial.x + deltaX),
+            y: Math.max(0, initial.y + deltaY),
+          };
+        } else if (actionState === 'resize-elem') {
+          return {
+            ...el,
+            width: Math.max(20, initial.width + deltaX),
+            height: Math.max(20, initial.height + deltaY),
+          };
+        }
+        return el;
+      })
+    );
+  };
+
+  const handleMouseUp = () => setActionState(null);
+
+  const updateSelectedElements = (key, value) => {
+    setElements((prev) =>
+      prev.map((el) => (selectedIds.includes(el.id) ? { ...el, [key]: value } : el))
+    );
+  };
+
+  const applyButtonStylePreset = (variantKey) => {
+    const preset = BUTTON_STYLES[variantKey];
+    if (!preset) return;
+    setElements((prev) =>
+      prev.map((el) => {
+        if (!selectedIds.includes(el.id)) return el;
+        return {
+          ...el,
+          bgColor: preset.bg,
+          textColor: preset.text,
+          borderStyle: preset.border,
+          boxShadow: preset.shadow,
+          buttonStyle: variantKey
+        };
+      })
+    );
+  };
+
+  const updateSelectedPercentSize = (dimension, percentValue) => {
+    setElements((prev) =>
+      prev.map((el) => {
+        if (!selectedIds.includes(el.id)) return el;
+        if (dimension === 'width') {
+          const newWidth = Math.round((percentValue / 100) * canvasSize.width);
+          return { ...el, width: Math.max(20, newWidth) };
+        } else {
+          const newHeight = Math.round((percentValue / 100) * canvasSize.height);
+          return { ...el, height: Math.max(20, newHeight) };
+        }
+      })
+    );
+  };
+
+  const setZIndexAbsolute = (target) => {
+    if (selectedIds.length === 0) return;
+    setElements((prev) => {
+      const allZ = prev.map((el) => el.zIndex || 1);
+      const minZ = Math.min(...allZ);
+      const maxZ = Math.max(...allZ);
+
+      return prev.map((el) => {
+        if (!selectedIds.includes(el.id)) return el;
+        if (target === 'bottom') return { ...el, zIndex: Math.max(0, minZ - 1) };
+        if (target === 'top') return { ...el, zIndex: maxZ + 1 };
+        return el;
+      });
+    });
+  };
+
+  const changeZIndex = (direction) => {
+    setElements((prev) =>
+      prev.map((el) => {
+        if (!selectedIds.includes(el.id)) return el;
+        const currentZ = el.zIndex || 1;
+        const newIndex = direction === 'up' ? currentZ + 1 : Math.max(0, currentZ - 1);
+        return { ...el, zIndex: newIndex };
+      })
+    );
+  };
+
+  const handleGroup = () => {
+    if (selectedIds.length < 2) return;
+    const newGroupId = `group-${Date.now()}`;
+    updateSelectedElements('groupId', newGroupId);
+  };
+
+  const handleUngroup = () => {
+    updateSelectedElements('groupId', null);
+  };
+
+  const handleImageUpload = (e) => {
+    const file = e.target.files[0];
+    if (file && selectedIds.length > 0) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        updateSelectedElements('imageUrl', event.target.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const saveTemplate = () => {
+    if (!templateName.trim()) return;
+    const newTemplates = {
+      ...templates,
+      [templateName]: { pages, canvasSize }
+    };
+    setTemplates(newTemplates);
+    localStorage.setItem('industrial_canvas_templates_v10', JSON.stringify(newTemplates));
+    setTemplateName('');
+  };
+
+  const deleteTemplate = (name, e) => {
+    e.stopPropagation();
+    const updated = { ...templates };
+    delete updated[name];
+    setTemplates(updated);
+    localStorage.setItem('industrial_canvas_templates_v10', JSON.stringify(updated));
+  };
+
+  const loadTemplate = (name) => {
+    const template = templates[name];
+    if (template) {
+      setPages(template.pages);
+      setCanvasSize(template.canvasSize);
+      setActivePageId(Object.keys(template.pages)[0] || 'page-1');
+      setSelectedIds([]);
+    }
+  };
+
+  const exportProjectToDisk = () => {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({ pages, canvasSize }, null, 2));
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute("href", dataStr);
+    downloadAnchor.setAttribute("download", `dashboard_project_${Date.now()}.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+  };
+
+  const importProjectFromDisk = (e) => {
+    const fileReader = new FileReader();
+    if (e.target.files && e.target.files[0]) {
+      fileReader.readAsText(e.target.files[0], "UTF-8");
+      fileReader.onload = (event) => {
+        try {
+          const parsed = JSON.parse(event.target.result);
+          if (parsed.pages && parsed.canvasSize) {
+            setPages(parsed.pages);
+            setCanvasSize(parsed.canvasSize);
+            setActivePageId(Object.keys(parsed.pages)[0] || 'page-1');
+            setSelectedIds([]);
+          }
+        } catch (err) {
+          alert('Invalid JSON project file.');
+        }
+      };
+    }
+  };
+
+  useEffect(() => {
+    const saved = localStorage.getItem('industrial_canvas_templates_v10');
+    if (saved) setTemplates(JSON.parse(saved));
+  }, []);
+
+  const deleteElements = () => {
+    setElements((prev) => prev.filter((el) => !selectedIds.includes(el.id)));
+    setSelectedIds([]);
+  };
+
+  const exportAsImage = async () => {
+    if (!canvasRef.current) return;
+    const backupSelection = [...selectedIds];
+    setSelectedIds([]); 
+
+    setTimeout(async () => {
+      try {
+        const dataUrl = await htmlToImage.toPng(canvasRef.current, {
+          quality: 1.0,
+          pixelRatio: 2,
+          backgroundColor: canvasBg,
+        });
+        const link = document.createElement('a');
+        link.download = `${pages[activePageId]?.name || 'dashboard'}-export.png`;
+        link.href = dataUrl;
+        link.click();
+      } catch (error) {
+        console.error('Export failed:', error);
+      } finally {
+        setSelectedIds(backupSelection);
+      }
+    }, 150);
+  };
+
+  const primarySelectedElement = elements.find((el) => el.id === selectedIds[0]);
+
+  const currentWidthPercent = primarySelectedElement 
+    ? Math.round((primarySelectedElement.width / canvasSize.width) * 100) 
+    : 0;
+  const currentHeightPercent = primarySelectedElement 
+    ? Math.round((primarySelectedElement.height / canvasSize.height) * 100) 
+    : 0;
+
+  return (
+    <div className="flex h-screen bg-slate-950 text-slate-200 font-sans overflow-hidden">
+      {/* Sidebar Panel */}
+      <div className="w-80 bg-slate-900/90 border-r border-cyan-900/50 p-4 flex flex-col gap-4 overflow-y-auto backdrop-blur-md font-mono">
+        <div className="flex items-center gap-2 border-b border-cyan-800/50 pb-3">
+          <Cpu className="text-cyan-400 animate-pulse" size={20} />
+          <h2 className="text-sm font-bold tracking-wider text-cyan-400 uppercase">C&S System Studio Console</h2>
+        </div>
+
+        {/* Realtime Auto-Save Status */}
+        <div className="bg-emerald-950/40 border border-emerald-600/40 p-2 rounded flex items-center justify-between text-emerald-400 text-[11px]">
+          <span className="flex items-center gap-1.5 font-bold uppercase">
+            <RefreshCw size={12} className="animate-spin text-emerald-400" /> Auto-Save Active
+          </span>
+          <span className="text-[9px] text-emerald-300">Persisted</span>
+        </div>
+
+        {/* Project Storage Controls */}
+        <div className="bg-slate-950/80 p-3 rounded border border-cyan-900/40 flex flex-col gap-2">
+          <span className="text-[11px] font-bold text-cyan-300 flex items-center gap-1.5 uppercase tracking-wide">
+            <Save size={13} /> Project Snapshots
+          </span>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder="PROJECT_NAME"
+              value={templateName}
+              onChange={(e) => setTemplateName(e.target.value)}
+              className="w-full bg-slate-900 px-2 py-1 rounded text-xs border border-slate-700 focus:border-cyan-500 focus:outline-none text-cyan-300 uppercase"
+            />
+            <button
+              onClick={saveTemplate}
+              className="bg-cyan-900/60 hover:bg-cyan-800 text-cyan-200 border border-cyan-600 px-3 py-1 rounded text-xs font-bold transition"
+            >
+              SAVE
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 mt-1">
+            <button
+              onClick={exportProjectToDisk}
+              className="flex items-center justify-center gap-1 bg-slate-800 hover:bg-slate-700 text-cyan-400 border border-slate-700 p-1.5 rounded text-[11px] font-bold transition"
+            >
+              <Download size={12} /> Export JSON
+            </button>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="flex items-center justify-center gap-1 bg-slate-800 hover:bg-slate-700 text-cyan-400 border border-slate-700 p-1.5 rounded text-[11px] font-bold transition"
+            >
+              <Upload size={12} /> Import JSON
+            </button>
+            <input 
+              type="file" 
+              ref={fileInputRef} 
+              onChange={importProjectFromDisk} 
+              accept=".json" 
+              className="hidden" 
+            />
+          </div>
+
+          {Object.keys(templates).length > 0 && (
+            <div className="flex flex-col gap-1 mt-1">
+              <span className="text-[10px] text-slate-500 uppercase">Saved Presets:</span>
+              <div className="flex flex-col gap-1 max-h-24 overflow-y-auto">
+                {Object.keys(templates).map((name) => (
+                  <div key={name} className="flex items-center justify-between bg-slate-800/80 px-2 py-1 rounded border border-slate-700">
+                    <button
+                      onClick={() => loadTemplate(name)}
+                      className="flex items-center gap-1 text-cyan-400 text-[11px] truncate hover:underline"
+                    >
+                      <FolderOpen size={10} /> {name}
+                    </button>
+                    <button
+                      onClick={(e) => deleteTemplate(name, e)}
+                      className="text-slate-400 hover:text-rose-400 transition ml-2"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Active Canvas BG */}
+        <div className="bg-slate-950/80 p-3 rounded border border-cyan-900/40 flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold text-cyan-300 flex items-center gap-2 uppercase">
+              <Palette size={13} /> C&S Background
+            </span>
+            <input
+              type="color"
+              value={canvasBg}
+              onChange={(e) => updatePageBg(e.target.value)}
+              className="w-8 h-5 bg-transparent cursor-pointer rounded border border-slate-700"
+            />
+          </div>
+        </div>
+
+        {/* Component Palette */}
+        <div className="flex flex-col gap-2">
+          <span className="text-[11px] font-bold text-cyan-300 uppercase">Add Elements:</span>
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={() => addElement('textbox')} className="flex items-center gap-2 bg-amber-950/80 hover:bg-amber-900 p-2 rounded text-xs border border-amber-600 text-amber-300 transition">
+              <Type size={13} /> Text Label
+            </button>
+            <button onClick={() => addElement('container')} className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 p-2 rounded text-xs border border-slate-600 text-slate-200 transition">
+              <Box size={13} /> Container Box
+            </button>
+            <button onClick={() => addElement('product')} className="flex items-center gap-2 bg-sky-950/80 hover:bg-sky-900 p-2 rounded text-xs border border-sky-600 text-sky-300 transition">
+              <ComponentIcon size={13} /> Product Image
+            </button>
+            <button onClick={() => addElement('logo')} className="flex items-center gap-2 bg-indigo-950/80 hover:bg-indigo-900 p-2 rounded text-xs border border-indigo-600 text-indigo-300 transition">
+              <ImageIcon size={13} /> Custom Logo
+            </button>
+            <button onClick={() => addElement('header')} className="flex items-center gap-2 bg-slate-800/80 hover:bg-cyan-950 p-2 rounded text-xs border border-slate-700 hover:border-cyan-500 text-slate-300 transition">
+              <Square size={13} /> Header Block
+            </button>
+            <button onClick={() => addElement('sidebar')} className="flex items-center gap-2 bg-slate-800/80 hover:bg-cyan-950 p-2 rounded text-xs border border-slate-700 hover:border-cyan-500 text-slate-300 transition">
+              <Square size={13} /> Sidebar Block
+            </button>
+          </div>
+
+          {/* Button Types Selection */}
+          <div className="bg-slate-950/80 p-2.5 rounded border border-cyan-900/40 mt-1">
+            <span className="text-[10px] text-slate-400 font-bold block mb-1.5 uppercase flex items-center gap-1">
+              <Sparkles size={11} className="text-cyan-400" /> Add Button Types:
+            </span>
+            <div className="grid grid-cols-2 gap-1.5">
+              {Object.keys(BUTTON_STYLES).map((key) => (
+                <button
+                  key={key}
+                  onClick={() => addElement('button', key)}
+                  className="px-2 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 hover:border-cyan-500 text-[11px] text-cyan-300 rounded text-left truncate transition flex items-center justify-between"
+                >
+                  <span>{BUTTON_STYLES[key].name}</span>
+                  <Plus size={10} />
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Node Properties Panel */}
+        {selectedIds.length > 0 && primarySelectedElement ? (
+          <div className="flex flex-col gap-3 border-t border-cyan-900/50 pt-3">
+            <div className="flex justify-between items-center">
+              <h3 className="font-bold text-cyan-400 text-xs uppercase flex items-center gap-1.5">
+                <Sliders size={13} /> Node Editor ({selectedIds.length} Active)
+              </h3>
+              <button onClick={deleteElements} className="text-rose-400 hover:text-rose-300 transition" title="Delete Element">
+                <Trash2 size={15} />
+              </button>
+            </div>
+
+            <div className="bg-slate-950/80 p-2 rounded border border-cyan-900/40">
+              <label className="text-[10px] text-slate-400 block mb-1 uppercase font-semibold">Label / Text</label>
+              <input
+                type="text"
+                value={primarySelectedElement.text}
+                onChange={(e) => updateSelectedElements('text', e.target.value)}
+                className="w-full bg-slate-900 p-1.5 rounded text-xs text-cyan-300 border border-slate-700 focus:outline-none focus:border-cyan-500 font-mono"
+              />
+            </div>
+
+            {primarySelectedElement.type === 'button' && (
+              <div className="bg-slate-950/80 p-2 rounded border border-cyan-900/40 flex flex-col gap-1.5">
+                <label className="text-[10px] text-slate-400 uppercase font-semibold">Button Style Variant</label>
+                <select
+                  value={primarySelectedElement.buttonStyle || 'primary'}
+                  onChange={(e) => applyButtonStylePreset(e.target.value)}
+                  className="w-full bg-slate-900 p-1.5 rounded text-xs text-cyan-300 border border-slate-700 focus:outline-none focus:border-cyan-500 font-mono"
+                >
+                  {Object.keys(BUTTON_STYLES).map((key) => (
+                    <option key={key} value={key}>{BUTTON_STYLES[key].name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div className="bg-slate-950/80 p-2 rounded border border-cyan-900/40 flex flex-col gap-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-slate-400 uppercase font-semibold flex items-center gap-1">
+                  <Sun size={12} /> Opacity
+                </span>
+                <span className="text-[10px] text-cyan-400 font-mono">
+                  {Math.round((primarySelectedElement.opacity ?? 1) * 100)}%
+                </span>
+              </div>
+              <input
+                type="range"
+                min="0.1"
+                max="1"
+                step="0.05"
+                value={primarySelectedElement.opacity ?? 1}
+                onChange={(e) => updateSelectedElements('opacity', parseFloat(e.target.value))}
+                className="w-full accent-cyan-500 h-1 bg-slate-800 rounded cursor-pointer"
+              />
+            </div>
+
+            <div className="bg-slate-950/80 p-2 rounded border border-cyan-900/40 flex flex-col gap-1.5">
+              <label className="text-[10px] text-slate-400 uppercase font-semibold">Drop Shadow Effect</label>
+              <select
+                value={primarySelectedElement.boxShadow || 'none'}
+                onChange={(e) => updateSelectedElements('boxShadow', e.target.value)}
+                className="w-full bg-slate-900 p-1.5 rounded text-xs text-cyan-300 border border-slate-700 focus:outline-none focus:border-cyan-500 font-mono"
+              >
+                {SHADOW_PRESETS.map((sh) => (
+                  <option key={sh.id} value={sh.val}>{sh.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {primarySelectedElement.type === 'container' && (
+              <div className="flex items-center justify-between bg-slate-950/80 p-2 rounded border border-cyan-900/40">
+                <span className="text-[10px] text-slate-300 font-semibold flex items-center gap-1">
+                  <Grid size={13} /> Grid Lines Overlay
+                </span>
+                <input
+                  type="checkbox"
+                  checked={!!primarySelectedElement.showGridPattern}
+                  onChange={(e) => updateSelectedElements('showGridPattern', e.target.checked)}
+                  className="accent-cyan-500 cursor-pointer w-4 h-4"
+                />
+              </div>
+            )}
+
+            <div className="flex flex-col gap-1.5 bg-slate-950/80 p-2 rounded border border-cyan-900/40">
+              <span className="text-[10px] text-slate-400 uppercase font-semibold">Text Formatting & Alignment</span>
+              <div className="flex items-center justify-between gap-1">
+                <div className="flex bg-slate-900 rounded border border-slate-800 p-0.5">
+                  <button 
+                    onClick={() => updateSelectedElements('textAlign', 'left')}
+                    className={`p-1 rounded ${primarySelectedElement.textAlign === 'left' ? 'bg-cyan-600 text-black' : 'text-slate-400'}`}
+                  >
+                    <AlignLeft size={13} />
+                  </button>
+                  <button 
+                    onClick={() => updateSelectedElements('textAlign', 'center')}
+                    className={`p-1 rounded ${primarySelectedElement.textAlign === 'center' ? 'bg-cyan-600 text-black' : 'text-slate-400'}`}
+                  >
+                    <AlignCenter size={13} />
+                  </button>
+                  <button 
+                    onClick={() => updateSelectedElements('textAlign', 'right')}
+                    className={`p-1 rounded ${primarySelectedElement.textAlign === 'right' ? 'bg-cyan-600 text-black' : 'text-slate-400'}`}
+                  >
+                    <AlignRight size={13} />
+                  </button>
+                </div>
+
+                <div className="flex bg-slate-900 rounded border border-slate-800 p-0.5 gap-1">
+                  <button 
+                    onClick={() => updateSelectedElements('fontWeight', primarySelectedElement.fontWeight === 'bold' ? 'normal' : 'bold')}
+                    className={`p-1 rounded ${primarySelectedElement.fontWeight === 'bold' ? 'bg-cyan-600 text-black' : 'text-slate-400'}`}
+                  >
+                    <Bold size={13} />
+                  </button>
+                  <button 
+                    onClick={() => updateSelectedElements('fontStyle', primarySelectedElement.fontStyle === 'italic' ? 'normal' : 'italic')}
+                    className={`p-1 rounded ${primarySelectedElement.fontStyle === 'italic' ? 'bg-cyan-600 text-black' : 'text-slate-400'}`}
+                  >
+                    <Italic size={13} />
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-1 bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800">
+                  <span className="text-[10px] text-slate-400">PX</span>
+                  <input
+                    type="number"
+                    min="8"
+                    max="72"
+                    value={primarySelectedElement.fontSize || 14}
+                    onChange={(e) => updateSelectedElements('fontSize', Number(e.target.value))}
+                    className="w-10 bg-transparent text-xs text-cyan-300 font-mono text-center focus:outline-none"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 bg-slate-950/80 p-2 rounded border border-cyan-900/40">
+              <div>
+                <label className="text-[10px] text-slate-400 block mb-1 uppercase">Fill Color</label>
+                <div className="flex items-center gap-2 bg-slate-900 p-1 rounded border border-slate-800">
+                  <input
+                    type="color"
+                    value={primarySelectedElement.bgColor === 'transparent' ? '#ffffff' : primarySelectedElement.bgColor}
+                    onChange={(e) => updateSelectedElements('bgColor', e.target.value)}
+                    className="w-6 h-5 bg-transparent cursor-pointer rounded"
+                  />
+                  <button 
+                    onClick={() => updateSelectedElements('bgColor', 'transparent')} 
+                    className="text-[9px] text-cyan-400 underline"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="text-[10px] text-slate-400 block mb-1 uppercase">Text Color</label>
+                <div className="flex items-center gap-2 bg-slate-900 p-1 rounded border border-slate-800">
+                  <input
+                    type="color"
+                    value={primarySelectedElement.textColor}
+                    onChange={(e) => updateSelectedElements('textColor', e.target.value)}
+                    className="w-6 h-5 bg-transparent cursor-pointer rounded"
+                  />
+                  <span className="text-[10px] uppercase text-cyan-400 font-mono">{primarySelectedElement.textColor}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1 bg-slate-950/80 p-2 rounded border border-cyan-900/40">
+              <span className="text-[10px] text-slate-400 uppercase font-semibold">Layer Order / Z-Index ({primarySelectedElement.zIndex || 1})</span>
+              <div className="grid grid-cols-4 gap-1">
+                <button
+                  onClick={() => setZIndexAbsolute('bottom')}
+                  className="p-1 text-[10px] bg-slate-800 hover:bg-cyan-950 border border-slate-700 text-cyan-300 rounded"
+                >
+                  Send Back
+                </button>
+                <button
+                  onClick={() => changeZIndex('down')}
+                  className="p-1 text-[10px] bg-slate-800 hover:bg-cyan-950 border border-slate-700 text-cyan-300 rounded"
+                >
+                  Z -
+                </button>
+                <button
+                  onClick={() => changeZIndex('up')}
+                  className="p-1 text-[10px] bg-slate-800 hover:bg-cyan-950 border border-slate-700 text-cyan-300 rounded"
+                >
+                  Z +
+                </button>
+                <button
+                  onClick={() => setZIndexAbsolute('top')}
+                  className="p-1 text-[10px] bg-slate-800 hover:bg-cyan-950 border border-slate-700 text-cyan-300 rounded"
+                >
+                  Bring Top
+                </button>
+              </div>
+            </div>
+
+            {(primarySelectedElement.type === 'logo' || primarySelectedElement.type === 'product') && (
+              <div className="bg-slate-950/80 p-2 rounded border border-cyan-900/40">
+                <label className="text-[10px] text-slate-400 block mb-1 uppercase font-semibold">Upload Image File</label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageUpload}
+                  className="block w-full text-[11px] text-slate-400 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:bg-cyan-950 file:text-cyan-300 cursor-pointer"
+                />
+              </div>
+            )}
+
+            <div className="flex flex-col gap-2 bg-slate-950/80 p-2 rounded border border-cyan-900/40">
+              <span className="text-[11px] font-bold text-cyan-300 flex items-center gap-1.5 uppercase">
+                <Maximize2 size={12} /> Size Matrix (%)
+              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] w-6 text-slate-400">WIDTH:</span>
+                <input
+                  type="range"
+                  min="5"
+                  max="100"
+                  value={currentWidthPercent}
+                  onChange={(e) => updateSelectedPercentSize('width', Number(e.target.value))}
+                  className="w-full accent-cyan-500 h-1 bg-slate-800 rounded"
+                />
+                <span className="text-[10px] w-8 text-right text-cyan-400">{currentWidthPercent}%</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] w-6 text-slate-400">HEIGHT:</span>
+                <input
+                  type="range"
+                  min="5"
+                  max="100"
+                  value={currentHeightPercent}
+                  onChange={(e) => updateSelectedPercentSize('height', Number(e.target.value))}
+                  className="w-full accent-cyan-500 h-1 bg-slate-800 rounded"
+                />
+                <span className="text-[10px] w-8 text-right text-cyan-400">{currentHeightPercent}%</span>
+              </div>
+            </div>
+
+            <div className="flex gap-1.5 bg-slate-950/80 p-2 rounded border border-cyan-900/40">
+              <button onClick={handleGroup} disabled={selectedIds.length < 2} className="flex-1 flex items-center justify-center gap-1 bg-slate-800 disabled:opacity-40 hover:bg-cyan-950 text-cyan-300 border border-slate-700 hover:border-cyan-500 p-1 rounded text-xs transition">
+                <Group size={12} /> Group
+              </button>
+              <button onClick={handleUngroup} className="flex-1 flex items-center justify-center gap-1 bg-slate-800 hover:bg-cyan-950 text-cyan-300 border border-slate-700 hover:border-cyan-500 p-1 rounded text-xs transition">
+                <Ungroup size={12} /> Ungroup
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="p-4 border border-dashed border-cyan-900/50 rounded text-center bg-slate-950/40">
+            <p className="text-xs text-slate-500 italic">Select node(s) on c&s electric to edit properties.</p>
+          </div>
+        )}
+
+        <div className="mt-auto pt-2">
+          <button onClick={exportAsImage} className="w-full flex items-center justify-center gap-2 bg-cyan-600 hover:bg-cyan-500 text-slate-950 py-2.5 rounded text-xs font-black tracking-wider transition uppercase shadow-lg shadow-cyan-950/50">
+            <Download size={15} /> Export HD Image
+          </button>
+        </div>
+      </div>
+
+      {/* Main Workspace Canvas */}
+      <div className="flex-1 flex flex-col bg-slate-950 overflow-hidden">
+        {/* Pages Header Bar */}
+        <div className="bg-slate-900/90 border-b border-cyan-900/40 px-6 py-2.5 flex items-center justify-between font-mono">
+          <div className="flex items-center gap-2 overflow-x-auto">
+            <span className="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-1 mr-2">
+              <Layers size={13} /> Pages / Projects:
+            </span>
+            {Object.values(pages).map((pg) => (
+              <div
+                key={pg.id}
+                onClick={() => {
+                  setActivePageId(pg.id);
+                  setSelectedIds([]);
+                }}
+                className={`flex items-center gap-2 px-3 py-1 rounded border text-xs cursor-pointer transition ${
+                  activePageId === pg.id
+                    ? 'bg-cyan-950/80 border-cyan-500 text-cyan-300 font-bold'
+                    : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700'
+                }`}
+              >
+                <span>{pg.name}</span>
+                {Object.keys(pages).length > 1 && (
+                  <button
+                    onClick={(e) => deletePage(pg.id, e)}
+                    className="hover:text-rose-400 transition ml-1"
+                    title="Delete Page"
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+            ))}
+            <button
+              onClick={addPage}
+              className="flex items-center gap-1 bg-slate-800 hover:bg-cyan-900/40 text-cyan-400 border border-slate-700 hover:border-cyan-600 px-2.5 py-1 rounded text-xs transition ml-1"
+            >
+              <FilePlus size={13} /> New Page
+            </button>
+          </div>
+
+          <div className="flex items-center gap-4 text-[11px] text-slate-500 bg-slate-950/80 px-3 py-1 rounded border border-cyan-900/30">
+            <span className="flex items-center gap-1.5 text-cyan-400"><Activity size={12} /> ACTIVE: {pages[activePageId]?.name}</span>
+            <span>RES: {canvasSize.width}x{canvasSize.height} PX</span>
+          </div>
+        </div>
+
+        {/* Dynamic Interactive Canvas Workspace */}
+        <div 
+          className="flex-1 p-6 flex items-center justify-center overflow-auto relative"
+          onMouseMove={handleMouseMove} 
+          onMouseUp={handleMouseUp}
+          style={{
+            backgroundImage: 'radial-gradient(circle, #1e293b 1px, transparent 1px)',
+            backgroundSize: '20px 20px'
+          }}
+        >
+          <div
+            ref={canvasRef}
+            onClick={() => setSelectedIds([])}
+            className="relative border-2 border-cyan-700/60 rounded-xl shadow-2xl overflow-hidden select-none transition-all"
+            style={{ 
+              width: `${canvasSize.width}px`, 
+              height: `${canvasSize.height}px`, 
+              backgroundColor: canvasBg,
+              boxShadow: '0 0 40px rgba(6, 182, 212, 0.15)'
+            }}
+          >
+            {elements.map((el) => {
+              const isSelected = selectedIds.includes(el.id);
+              const hasGrid = el.type === 'container' && el.showGridPattern;
+
+              return (
+                <div
+                  key={el.id}
+                  onMouseDown={(e) => handleDragStart(e, el.id)}
+                  className={`canvas-element absolute cursor-move flex items-center justify-center transition-all ${
+                    isSelected ? 'ring-2 ring-cyan-400 shadow-lg shadow-cyan-500/50 border border-cyan-200 z-50' : ''
+                  }`}
+                  style={{
+                    left: `${el.x}px`,
+                    top: `${el.y}px`,
+                    width: `${el.width}px`,
+                    height: `${el.height}px`,
+                    backgroundColor: el.bgColor,
+                    color: el.textColor,
+                    fontSize: `${el.fontSize}px`,
+                    fontWeight: el.fontWeight,
+                    fontStyle: el.fontStyle,
+                    opacity: el.opacity ?? 1,
+                    boxShadow: el.boxShadow || 'none',
+                    border: el.borderStyle || 'none',
+                    zIndex: el.zIndex || 1,
+                    borderRadius: el.borderRadius || '4px',
+                    textAlign: el.textAlign,
+                    backgroundImage: hasGrid 
+                      ? 'linear-gradient(to right, rgba(255, 255, 255, 0.05) 1px, transparent 1px), linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px)' 
+                      : 'none',
+                    backgroundSize: hasGrid ? '30px 30px' : 'auto'
+                  }}
+                >
+                  {el.imageUrl ? (
+                    <img src={el.imageUrl} alt={el.text} className="w-full h-full object-contain pointer-events-none p-1" />
+                  ) : el.type === 'product' ? (
+                    <div className="w-full h-full border border-dashed border-sky-400/60 rounded flex flex-col items-center justify-center p-2 text-center bg-sky-950/20 pointer-events-none">
+                      <ComponentIcon size={24} className="text-sky-400 mb-1" />
+                      <span className="text-[11px] font-bold text-sky-300">{el.text}</span>
+                      <span className="text-[9px] text-slate-400 mt-0.5">Upload product image in sidebar</span>
+                    </div>
+                  ) : el.type === 'logo' ? (
+                    <div className="w-full h-full border border-dashed border-indigo-400/60 rounded flex flex-col items-center justify-center p-2 text-center bg-indigo-950/20 pointer-events-none">
+                      <ImageIcon size={20} className="text-indigo-400 mb-1" />
+                      <span className="text-[11px] font-bold text-indigo-300">{el.text}</span>
+                      <span className="text-[9px] text-slate-400">Upload logo image</span>
+                    </div>
+                  ) : (
+                    <span className="tracking-wide pointer-events-none px-2 block w-full truncate text-center">
+                      {el.text}
+                    </span>
+                  )}
+
+                  {isSelected && (
+                    <div
+                      onMouseDown={(e) => handleElemResizeStart(e, el.id)}
+                      className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-cyan-400 border border-black cursor-se-resize rounded-tl-sm shadow-md"
+                    />
+                  )}
+                </div>
+              );
+            })}
+
+            <div
+              onMouseDown={handleCanvasResizeStart}
+              className="absolute bottom-0 right-0 w-5 h-5 bg-cyan-600 hover:bg-cyan-400 cursor-se-resize flex items-center justify-center z-20 rounded-tl shadow-lg"
+              title="Drag to resize layout canvas"
+            >
+              <Move size={10} className="text-slate-950 font-bold" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default App;
+
+
+
+
+
+
+
